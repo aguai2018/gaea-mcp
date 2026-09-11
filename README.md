@@ -1,70 +1,79 @@
-# gaea-mcp — 让 AI 真正驱动 Gaea 2 的 MCP Server
+<!-- Language / 语言 -->
+**🌐 Language:** **English** &nbsp;|&nbsp; [简体中文](README.zh-CN.md)
 
-> 一套能**跑通**的 QuadSpinner Gaea 2 自动化工具：MCP Server + Skill 包。
-> 不是"生成 .terrain 文件"的玩具，而是**从真实 DEM 到成功导出成品**的完整链路。
+# gaea-mcp — an MCP server that actually drives Gaea 2
 
-**验证状态**：本工具包使用的每一种文件格式、节点参数、构建流程，都在
-**Gaea 2.3.0.1 (Windows)** 上实测通过，并成功导出过 4096² 高度图与彩色图。
+> A QuadSpinner Gaea 2 automation toolkit that **works**: an MCP server plus a
+> drop-in Skill package. Not a `.terrain`-file generator toy — a complete path
+> from real elevation data to successfully exported output.
 
-### 已验证 / 未验证（务必阅读）
+**Verified:** every file format, node parameter set and build procedure used
+here was tested against **Gaea 2.3.0.1 on Windows**, producing real 4096²
+heightmap and colour-map exports.
 
-| 能力 | 状态 |
+### Verified / not yet verified — please read
+
+| Capability | Status |
 |---|---|
-| `.terrain` 生成（`$id` 图、必需端口、`Version:2`、Export 路径） | ✅ 离线自检 8 组全通过 |
-| 16-bit 灰度掩膜写入与位深防护 | ✅ 已验证；实测湖面 7.150 m / 标准差 0.0 mm |
-| 高度图/掩膜读写、归一化、晕渲、分形地形 | ✅ 已验证 |
-| 真实 DEM 下载（Copernicus GLO-30） | ✅ 已验证（12 km / 2048²，面积与高程经真值核对） |
-| **让 Gaea 加载并校验工程**（`gaea_validate_in_gaea`） | ⚠️ **部分验证**。读日志判定逻辑可靠；但自动按 `Ctrl+O` 打开工程在部分环境下无效（见下） |
-| **触发构建**（`gaea_build`） | ⚠️ **未完整验证**。构建序列本身已人工跑通并成功导出；但其依赖的打开工程步骤同上 |
+| `.terrain` authoring (`$id` graph, required ports, `Version:2`, Export paths) | ✅ 8 offline self-test groups pass |
+| 16-bit greyscale mask writing + bit-depth guard | ✅ measured lake surface 7.150 m, σ 0.0 mm |
+| Heightfield/mask IO, normalisation, hillshade, fractal terrain | ✅ verified |
+| Real DEM download (Copernicus GLO-30) | ✅ verified against known ground truth |
+| **Let Gaea load and validate a project** (`gaea_validate_in_gaea`) | ⚠️ **partially verified**. The log-based verdict is reliable; the automatic `Ctrl+O` open is not on every host |
+| **Trigger a build** (`gaea_build`) | ⚠️ **not fully verified**. The build sequence was driven by hand and exported successfully, but it depends on the open step above |
 
-**已知限制**：自动"打开工程"依赖向 Gaea 发送前台键盘事件（`Ctrl+O`）。
-在 Windows 上，后台进程常被前台锁定策略拒绝输入——即使
-`SetForegroundWindow` 报告成功，`SendInput` 也可能不进目标窗口。
-本项目已加"最小化+还原"兜底与工程已加载短路，但**未能在所有环境复现成功**。
+**Known limitation.** The automatic "open project" step sends foreground
+keystrokes (`Ctrl+O`) to Gaea. On Windows a background process is often refused
+input by the foreground-lock policy — `SetForegroundWindow` can report success
+while `SendInput` never reaches the target window. A minimise-then-restore
+fallback and an "already loaded" short-circuit are in place, but this was **not
+reproducible on every host**.
 
-workaround：由人手动在 Gaea 里打开工程（`File ▸ Open`）**一次**，
-之后 `gaea_build` 所需的 `Ctrl+B` 构建设置面板与按钮调用不受此限制。
-更好的修法是把按键发送也移入 C# 助手（它与窗口激活在同一进程）。
+Workaround: open the project once by hand (`File ▸ Open`). The Build Settings
+panel and button invocations that `gaea_build` needs are unaffected.
+The proper fix is to move key sending into the C# helper, which shares the
+process that activates the window.
 
 ---
 
-## 为什么需要它
+## Why this exists
 
-公开可得的同类工具普遍**生成了 Gaea 打不开、或能打开但构建失败的 `.terrain`**。
-它们的文档里甚至写着：
+Publicly available tools of this kind tend to **produce `.terrain` files Gaea
+cannot open, or can open but cannot build**. One such project's own notes say:
 
 > "The CLI subprocess encounters **handle is invalid** errors that do not
 > indicate actual file corruption."
-> —— 把 `Gaea.Swarm.exe` 的必然崩溃解释成了"不影响文件正确性"
 
-这个判断是**错的**，也正是无数人卡住的地方。真实情况是：
+That reads the inevitable `Gaea.Swarm.exe` crash as harmless. **It is not**, and
+it is exactly where people get stuck. What is actually happening:
 
-| 现象 | 真实原因 |
+| Symptom | Real cause |
 |---|---|
-| `Gaea.Swarm.exe` 报 `IOException: 句柄无效` | **浮动授权被 GUI 占用**。必须由 GUI 释放授权后再构建 |
-| 构建"无产出且无报错"(exit 0) | 工程里**没有 `Export` 节点**，Gaea 认为无事可做 |
-| `port In returned bad or no data` | 上游某节点**参数不被接受**（最典型：`Erosion2` 缺 `Version: 2` 触发旧格式迁移） |
-| 一切节点都报错 | Gaea 会**沿下游传播**单个错误。修**第一个**，不是最后一个 |
-| 掩膜"部分生效" | 掩膜存成 8-bit/调色板 PNG，被误读为 16-bit。**必须 16-bit 灰度** |
+| `Gaea.Swarm.exe` → `IOException: 句柄无效` (invalid handle) | **The GUI holds the floating licence seat.** Only the GUI can release it before Swarm runs |
+| Build produces nothing, no error, exit 0 | The graph has **no `Export` node**, so Gaea has nothing to do |
+| `port In returned bad or no data` | An upstream node **rejected its parameters** — most often an `Erosion2` missing `Version: 2` |
+| Every node reports an error | Gaea **propagates one failure downstream**. Fix the **first** error, not the last |
+| A mask is only partially applied | The mask was written 8-bit or palette; Gaea read it as 16-bit. **It must be 16-bit greyscale** |
 
-本工具把这些全部编码成了默认行为与防护检查。
+This toolkit bakes all of that into its defaults and its guards.
 
 ---
 
-## 安装
+## Install
 
 ```bash
-# 1) 需要 Python 3.10+ 与 .NET 8 SDK（后者用于编译 GUI 自动化助手）
+# Requires Python 3.10+ and the .NET 8 SDK (the latter builds the GUI helper)
 pip install -e .
 
-# 2) 自检：确认能找到 Gaea、能编译助手、能连上 GUI
+# Preflight: finds Gaea, can it build the helper, can it reach the GUI
 gaea-doctor
 ```
 
-`gaea-doctor` 会输出安装路径、版本、许可类型、构建/缓存/日志目录，
-并检查已知陷阱。**在任何其他操作之前先跑它。**
+`gaea-doctor` reports the install path, version, licence type, and the build /
+cache / log directories, and checks for the known traps. **Run it before
+anything else.**
 
-### 接入 AI 客户端
+### Wiring into an AI client
 
 ```json
 {
@@ -78,141 +87,149 @@ gaea-doctor
 
 ---
 
-## 可用工具
+## Tools
 
-| 工具 | 作用 |
+| Tool | Purpose |
 |---|---|
-| `gaea_doctor` | **先跑这个**。探测 Gaea 安装、版本、许可、目录、GUI 状态、已知陷阱 |
-| `gaea_list_node_types` | 列出可安全使用的节点类型、端口、默认参数，以及**已知不可用**的类型及原因 |
-| `gaea_create_project` | 生成可构建的 `.terrain`（自动加 `Version:2`、校验导出路径、拒绝危险节点） |
-| `gaea_audit_project` | 离线结构校验：`$id` 图、必需端口、Export 路径、危险节点 |
-| `gaea_summarise_project` | 读取并描述已有工程（地形定义、构建定义、节点、连线） |
-| `gaea_validate_in_gaea` | **关键**。让 Gaea 自己加载工程并读它的日志，找出真实校验错误 |
-| `gaea_build` | 通过 UI 自动化触发构建并等待产物（默认 `close_gui` 模式，最可靠） |
-| `gaea_read_build_report` | 读取最近一次构建报告（`report.json`） |
-| `gaea_scan_logs` | 读 Gaea 的构建日志 / 会话日志，并提取错误行 |
-| `gaea_prepare_heightmap` | 把原始高程转成 Gaea 可读格式（16-bit PNG / `.r32`），生成 16-bit  erosion 掩膜与晕渲预览 |
-| `gaea_make_fractal_heightmap` | 没有真实 DEM 时生成分形地形 |
-| `gaea_fetch_copernicus_dem` | **下载真实高程**（Copernicus DEM GLO-30，AWS 公开数据，无需密钥），按中心经纬度切正方形米制窗口 |
-| `gaea_write_erosion_mask` | 生成 16-bit 灰度侵蚀掩膜（1=侵蚀, 0=保护） |
-| `gaea_render_preview` | 不打开 Gaea 也能看晕渲预览 |
-| `gaea_open_in_gui` | 在 GUI 中打开工程供人查看 |
+| `gaea_doctor` | **Start here.** Installation, version, licence, directories, GUI state, known traps |
+| `gaea_list_node_types` | Node types this toolkit will author, their ports and defaults, plus the known-unsafe list and why |
+| `gaea_create_project` | Author a buildable `.terrain` (adds `Version:2`, validates export paths, refuses unsafe nodes) |
+| `gaea_audit_project` | Offline structural check: `$id` graph, required ports, Export paths, unsafe nodes |
+| `gaea_summarise_project` | Read and describe an existing project |
+| `gaea_validate_in_gaea` | **The important one.** Have Gaea load the project and read its log for real validation faults |
+| `gaea_build` | Trigger a build through UI Automation and wait for the exports (`close_gui` mode is most reliable) |
+| `gaea_read_build_report` | Read the most recent build report |
+| `gaea_scan_logs` | Read Gaea's build / session logs and extract the error lines |
+| `gaea_prepare_heightmap` | Turn raw elevation into Gaea-ready files, with a 16-bit erosion mask and hillshade preview |
+| `gaea_make_fractal_heightmap` | Synthetic terrain when no real DEM is available |
+| `gaea_fetch_copernicus_dem` | **Download real elevation** (GLO-30, AWS Open Data, no key) |
+| `gaea_write_erosion_mask` | Write a 16-bit greyscale erosion mask (1 = erode, 0 = protect) |
+| `gaea_render_preview` | Hillshade preview without opening Gaea |
+| `gaea_open_in_gui` | Open a project in the GUI for a human to inspect |
 
 ---
 
-## 推荐调用顺序
+## Recommended order
 
 ```
-gaea_doctor                      # 先确认环境
+gaea_doctor                      # confirm the environment
       ↓
-gaea_fetch_copernicus_dem        # 有真实地点时（可选）
-  或 gaea_make_fractal_heightmap
+gaea_fetch_copernicus_dem        # for a real place (optional)
+  or gaea_make_fractal_heightmap
       ↓
-gaea_prepare_heightmap           # 归一化 + 生成掩膜（如需保护湖区/平原）
+gaea_prepare_heightmap           # normalise + build masks
       ↓
-gaea_create_project              # 生成 .terrain
+gaea_create_project              # author the .terrain
       ↓
-gaea_validate_in_gaea            # ★ 关键：让 Gaea 自己说行不行
+gaea_validate_in_gaea            # ★ let Gaea itself judge
       ↓
-gaea_build                       # 触发构建
+gaea_build                       # trigger the build
       ↓
-gaea_read_build_report           # 校验产物
+gaea_read_build_report           # confirm the outputs
 ```
 
-**不要跳过 `gaea_validate_in_gaea`。** 离线校验看不到 Gaea 加载器的全部要求，
-跳过它就是在拿构建时间赌博。
+**Do not skip `gaea_validate_in_gaea`.** An offline audit cannot see everything
+Gaea's loader objects to; skipping it is gambling with build time.
 
 ---
 
-## 关键约束（写进代码的硬知识）
+## Hard constraints encoded in the code
 
-### 地形定义：Gaea 的 `Height` 是**起伏**不是 Y 尺寸
+### `Terrain.Height` is the elevation SPAN, not a Y size
 
 ```
-Terrain.Width  = 地面跨度（米）
-Terrain.Height = max_elevation - min_elevation   ← 起伏量
+Terrain.Width  = ground span in metres
+Terrain.Height = max_elevation - min_elevation    <- the relief
 Compression    = Height / Width
 ```
 
-Gaea 默认 `Width=5000 / Height=2500`（比例 0.5）。**照搬会把 400 m 的丘陵渲染成 2.5 km 的高山** —— 这是最常见的不真实来源。
-西湖群山真实比例是 `12000 m / 415 m = 0.0346`。
+Gaea defaults to `Width=5000 / Height=2500` (ratio 0.5). **Copying that onto real
+400 m hills renders 2.5 km peaks** — the single most common source of
+unrealistic terrain. West Lake's hills are truly `12000 m / 415 m = 0.0346`.
 
-### 归一化约定必须与工程一致
+### Keep the normalisation consistent
 
 ```
-0.0 ↔ 最低点        1.0 ↔ 最高点
+0.0 ↔ lowest point       1.0 ↔ highest point
 norm = (metres - min_m) / (max_m - min_m)
 ```
 
-### 位图导出用 `Export` 节点，不是 `Mesher`
+### Bitmaps come from `Export`, not `Mesher`
 
 ```json
 {"$type": "QuadSpinner.Gaea.Nodes.Export, Gaea.Nodes",
  "Format": "PNG16", "Location": "Explicit",
- "OutputPath": "D:/out/terrain_heightmap"}     // 不要带扩展名
+ "OutputPath": "D:/out/terrain_heightmap"}
 ```
 
-### `Erosion2` 必须带 `Version: 2`
+`OutputPath` must **not** include an extension — Gaea appends one per `Format`.
+
+### `Erosion2` must carry `Version: 2`
 
 ```json
 {"Duration": 40.0, "Downcutting": 0.2, "Seed": 12345,
  "Enable": true, "Version": 2}
 ```
 
-缺 `Version` → Gaea 尝试旧格式迁移 → `Object reference not set to an instance of an object`
-→ 错误沿下游传播 → 所有消费者报 `port In returned bad or no data`。
+Without `Version`, Gaea attempts an old-schema migration, null-references, and
+every downstream consumer reports `port In returned bad or no data`.
 
-### 数据文件用相对路径时必须与工程同目录
+### `RelativePath: true` resolves against the project folder
 
 ```json
 {"FileName": "heightmap.png", "RelativePath": true}
 ```
 
-### 侵蚀掩膜必须 16-bit 灰度
+The data file must sit beside the `.terrain`.
 
-8-bit 或调色板 PNG 会被误读为 16-bit：
+### Erosion masks must be 16-bit greyscale
+
+An 8-bit or palette PNG is mis-read as 16-bit:
 
 ```
 WRN Array length doesn't conform Map resolution! Requested: 16777216, Received: 33554432
 ```
 
-此时掩膜**只被部分应用**，被"保护"的区域仍会被侵蚀。
+The mask is then applied only **partially** — the "protected" area still erodes,
+silently.
 
-### 想得到绝对平坦的水面，就在数据里压平
+### Flatten water in the data, then protect it with a mask
 
-`Erosion2` 会侵蚀它被允许触及的一切。湖泊/平原应在**进入 Gaea 之前**于数据中压平，
-再用掩膜保护，二者结合才能得到数学上精确的水位（实测：均值 7.150 m，标准差 0.0 mm）。
+`Erosion2` erodes everything it is allowed to reach. A lake or plain must be
+flattened **before Gaea sees it**, and then protected. Both together are what
+produce a mathematically exact water level (measured: mean 7.150 m, σ 0.0 mm).
 
-### 构建路径
+### How to build
 
 ```
-Gaea.exe -Path <file>       ✗ 此构建上会崩溃，永远不要用
-直接运行 Gaea.Swarm.exe      ✗ GUI 持有授权时必然 IOException
-Ctrl+Shift+B                ✓ 构建快捷键（Ctrl+B 只打开设置面板）
+Gaea.exe -Path <file>      ✗ crashes on this build
+run Gaea.Swarm.exe direct  ✗ always IOException while the GUI holds the licence
+Ctrl+Shift+B               ✓ build shortcut (Ctrl+B only opens the settings panel)
 GUI: Ctrl+B → Execute Build → "Start Build" | "Close Gaea and Build"
 ```
 
-`Close Gaea and Build` 会关闭 GUI 释放授权再构建，**最可靠**，也是单授权席位
-共享时唯一可行的方式。
+`Close Gaea and Build` shuts the GUI down to free the licence and then builds —
+**most reliable**, and the only option when one seat is shared.
 
-### 已知会拒绝手写参数的节点（本工具会主动拒绝）
+### Node types that reject hand-written parameters
 
 `Thermal2` · `SatMap` · `WaterColor` · `Lake` · `Sea` · `Rivers` · `Thermal`
 
-它们并非"不可用"，而是**参数集未知**；若要用，必须先放一个到 GUI 里保存一次，
-从导出的 JSON 反推正确参数，再写进工程。
+They are not unusable — their parameter sets are unknown. To use one, add it in
+the GUI, set its parameters, save, and read the exact JSON back.
 
 ---
 
-## 目录结构
+## Layout
 
 ```
 gaea_mcp/
 ├─ pyproject.toml
-├─ README.md                     ← 本文件
-├─ selftest.py                   离线自检（无需 Gaea）
-├─ acceptance.py                 端到端验收（会让 Gaea 加载生成的工程）
-├─ skill/                        可直接安装的 AI Skill 包
+├─ README.md / README.zh-CN.md   docs (EN / ZH)
+├─ LICENSE / NOTICE.md           MIT + third-party notices
+├─ selftest.py                   offline checks (no Gaea needed)
+├─ acceptance.py                 end-to-end check (has Gaea load a generated project)
+├─ skill/                        installable AI Skill package
 │  └─ gaea-terrain/
 │     ├─ SKILL.md
 │     └─ reference/
@@ -221,23 +238,27 @@ gaea_mcp/
 │        ├─ BUILD.md
 │        └─ TROUBLESHOOTING.md
 └─ src/gaea_mcp/
-   ├─ config.py                  探测安装、版本、许可、目录
-   ├─ terrain.py                 .terrain schema + 生成器 + 结构审计
-   ├─ outputs.py                 高度图/掩膜读写、归一化、晕渲、分形地形
-   ├─ uia.py                     UI Automation 桥（自动编译 C# 助手）
-   ├─ gaea.py                    启动/加载/构建/读报告 编排
-   ├─ server.py                  MCP 工具定义
-   ├─ doctor.py                  命令行预检
-   └─ uia/uia.cs                 C# 助手（按控件名驱动 Gaea）
+   ├─ config.py                  locate install, version, licence, directories
+   ├─ terrain.py                 .terrain schema + builder + structural audit
+   ├─ outputs.py                 heightfield/mask IO, normalisation, hillshade, fractal DEM
+   ├─ uia.py                     UI Automation bridge (compiles the C# helper)
+   ├─ gaea.py                    launch / open / build / read-report orchestration
+   ├─ server.py                  MCP tool definitions
+   ├─ doctor.py                  command-line preflight
+   └─ uia/uia.cs                 C# helper that drives Gaea by control name
 ```
 
-## 自检
+## Self-test
 
 ```bash
-python selftest.py      # 离线：文件格式、$id 图、掩膜位深、防护检查
-python acceptance.py    # 在线：让 Gaea 加载生成的工程并报告是否通过
+python selftest.py      # offline: file format, $id graph, mask bit depth, guards
+python acceptance.py    # online: have Gaea load a generated project and report
 ```
 
-## 许可
+## Licence
 
-MIT
+MIT — see [LICENSE](LICENSE). Third-party and trademark notices: [NOTICE.md](NOTICE.md).
+
+This is an **independent, unofficial integration** with no affiliation to
+QuadSpinner and contains none of their code or assets. You need your own valid
+Gaea 2 licence to use it.
