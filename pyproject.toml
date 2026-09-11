@@ -1,0 +1,35 @@
+[project]
+name = "gaea-mcp"
+version = "1.0.0"
+description = "MCP server that lets an AI agent drive QuadSpinner Gaea 2 on Windows: author real .terrain projects, validate them in the GUI, and run builds that actually export."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "gaea-mcp contributors" }]
+keywords = ["mcp", "gaea", "terrain", "heightmap", "dem", "model-context-protocol"]
+
+dependencies = [
+    "mcp>=1.2.0",
+    "pillow>=10.0.0",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dem = ["requests>=2.31"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+gaea-mcp = "gaea_mcp.server:main"
+gaea-doctor = "gaea_mcp.doctor:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+gaea_mcp = ["uia/*.cs", "uia/*.csproj", "data/*.json"]

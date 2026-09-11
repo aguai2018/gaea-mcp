@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# .NET helper build output (rebuilt on demand by gaea_doctor / Uia.ensure)
+src/gaea_mcp/uia/bin/
+src/gaea_mcp/uia/obj/
+*.user
+
+# Test / scratch
+_selftest/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local data that must never be published
+*.terrain
+*.r32
+*.graw
+*.hgt
+data/
+outputs/
+Builds/
+Copernicus_DSM_COG_10_*.tif

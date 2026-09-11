@@ -1,0 +1,34 @@
+# Normalise line endings in the repository.
+# Windows checkouts still get CRLF in the working tree, but what is stored —
+# and therefore what Linux/macOS users and CI see — is always LF.
+* text=auto eol=lf
+
+# Binary assets must never be touched
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.tif  binary
+*.tiff binary
+*.exr  binary
+*.r32  binary
+*.raw  binary
+*.graw binary
+*.glb  binary
+*.obj  binary
+*.exe  binary
+*.dll  binary
+*.pdb  binary
+*.ico  binary
+
+# Keep the Windows batch/cmd files CRLF if any are ever added
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Make diffs and language stats behave
+*.md   text
+*.py   text
+*.cs   text
+*.toml text
+*.json text
+*.yml  text
+*.yaml text
